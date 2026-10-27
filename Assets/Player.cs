@@ -5,7 +5,7 @@ public class PlayerMovement : MonoBehaviour
     public CharacterController controller;
     public Transform playerCamera;
     public Transform firePoint;
-
+    public float vida = 10;
     public float speed = 6f;
     public float sprintSpeed = 10f;
     public float jumpHeight = 2f;
@@ -106,5 +106,10 @@ public class PlayerMovement : MonoBehaviour
     {
         ammo += amount;
         Debug.Log("Balas: " + ammo);
+    }
+
+    public void RecibirDano(float cantidad)
+    {
+        vida -= cantidad;
     }
 }
