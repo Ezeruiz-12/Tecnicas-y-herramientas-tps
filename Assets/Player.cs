@@ -7,19 +7,27 @@ public class PlayerMovement : MonoBehaviour
     public Transform firePoint;
 
     public float speed = 6f;
+    public float sprintSpeed = 10f;
     public float jumpHeight = 2f;
     public float gravity = -9.81f;
     public float mouseSensitivity = 100f;
 
+    public float maxStamina = 100f;
+    public float staminaDrain = 20f;
+    public float staminaRecovery = 15f;
+
     public float weaponRange = 100f;
     public float damage = 25f;
+    public int ammo = 10;
 
+    private float currentStamina;
     private Vector3 velocity;
     private bool isGrounded;
     private float cameraPitch;
 
     void Start()
     {
+        currentStamina = maxStamina;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
@@ -36,43 +44,67 @@ public class PlayerMovement : MonoBehaviour
         playerCamera.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
         transform.Rotate(Vector3.up * mouseX);
 
-        // Disparar con clic izquierdo
+        // Movimiento y estamina
+        float x = Input.GetAxis("Horizontal");
+        float z = Input.GetAxis("Vertical");
+
+        bool isMoving = x != 0f || z != 0f;
+        bool isSprinting = Input.GetKey(KeyCode.LeftShift)
+            && isMoving
+            && currentStamina > 0f;
+
+        float currentSpeed = isSprinting ? sprintSpeed : speed;
+
+        if (isSprinting)
+            currentStamina -= staminaDrain * Time.deltaTime;
+        else
+            currentStamina += staminaRecovery * Time.deltaTime;
+
+        currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+
+        Vector3 move = transform.right * x + transform.forward * z;
+        controller.Move(move * currentSpeed * Time.deltaTime);
+
+        // Disparar
         if (Input.GetMouseButtonDown(0))
             Shoot();
 
-        // Comprobar si está en el suelo
+        // Suelo, salto y gravedad
         isGrounded = controller.isGrounded;
-        if (isGrounded && velocity.y < 0)
+        if (isGrounded && velocity.y < 0f)
             velocity.y = -2f;
 
-        // Movimiento
-        float x = Input.GetAxis("Horizontal");
-        float z = Input.GetAxis("Vertical");
-        Vector3 move = transform.right * x + transform.forward * z;
-        controller.Move(move * speed * Time.deltaTime);
-
-        // Salto
         if (Input.GetButtonDown("Jump") && isGrounded)
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
 
-        // Gravedad
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
     }
 
     void Shoot()
     {
-        // El rayo sale del centro de la cámara
+        if (ammo <= 0)
+        {
+            Debug.Log("No quedan balas.");
+            return;
+        }
+
+        ammo--;
+        Debug.Log("Balas restantes: " + ammo);
+
         Ray ray = new Ray(playerCamera.position, playerCamera.forward);
 
         if (Physics.Raycast(ray, out RaycastHit hit, weaponRange))
         {
-            Debug.Log("Impacto: " + hit.collider.name);
-
-            // Si el objeto impactado tiene un componente TargetHealth, le aplica daño
             TargetHealth target = hit.collider.GetComponent<TargetHealth>();
             if (target != null)
                 target.TakeDamage(damage);
         }
+    }
+
+    public void AddAmmo(int amount)
+    {
+        ammo += amount;
+        Debug.Log("Balas: " + ammo);
     }
 }
