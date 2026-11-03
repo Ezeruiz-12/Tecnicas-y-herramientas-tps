@@ -2,6 +2,7 @@ using UnityEngine;
 
 public class PlayerMovement : MonoBehaviour
 {
+    public Animator animator;
     public CharacterController controller;
     public Transform playerCamera;
     public Transform firePoint;
@@ -75,7 +76,12 @@ public class PlayerMovement : MonoBehaviour
             velocity.y = -2f;
 
         if (Input.GetButtonDown("Jump") && isGrounded)
+            
+        {
+            animator.SetTrigger("Jumping");
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+
+        }
 
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
