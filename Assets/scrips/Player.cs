@@ -26,6 +26,11 @@ public class PlayerMovement : MonoBehaviour
     private bool isGrounded;
     private float cameraPitch;
 
+    private float jumpBufferTimer;
+    private float coyoteTimer;
+
+    [SerializeField] private float jumpBufferDuration = 0.15f;
+    [SerializeField] private float coyoteDuration = 0.1f;
     void Start()
     {
         currentStamina = maxStamina;
@@ -54,6 +59,9 @@ public class PlayerMovement : MonoBehaviour
             && isMoving
             && currentStamina > 0f;
 
+        animator.SetBool("Idle", !isMoving);
+        animator.SetBool("Runing", isMoving);
+
         float currentSpeed = isSprinting ? sprintSpeed : speed;
 
         if (isSprinting)
@@ -71,16 +79,35 @@ public class PlayerMovement : MonoBehaviour
             Shoot();
 
         // Suelo, salto y gravedad
-        isGrounded = controller.isGrounded;
-        if (isGrounded && velocity.y < 0f)
-            velocity.y = -2f;
+        if (Input.GetButtonDown("Jump"))
+            jumpBufferTimer = jumpBufferDuration;
+        else
+            jumpBufferTimer -= Time.deltaTime;
 
-        if (Input.GetButtonDown("Jump") && isGrounded)
-            
+        // Comprobar el suelo después del movimiento horizontal
+        isGrounded = controller.isGrounded;
+
+        if (isGrounded)
+        {
+            coyoteTimer = coyoteDuration;
+
+            if (velocity.y < 0f)
+                velocity.y = -2f;
+        }
+        else
+        {
+            coyoteTimer -= Time.deltaTime;
+        }
+
+        // Saltar si la pulsación sigue vigente y estamos en el suelo
+        // o dentro de la breve tolerancia al salir de una plataforma
+        if (jumpBufferTimer > 0f && coyoteTimer > 0f)
         {
             animator.SetTrigger("Jumping");
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
 
+            jumpBufferTimer = 0f;
+            coyoteTimer = 0f;
         }
 
         velocity.y += gravity * Time.deltaTime;
