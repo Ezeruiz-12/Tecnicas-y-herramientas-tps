@@ -1,17 +1,15 @@
 using UnityEngine;
 
+[RequireComponent(typeof(Rigidbody), typeof(CapsuleCollider))]
 public class PlayerMovement : MonoBehaviour
 {
     public Animator animator;
-    public CharacterController controller;
-    public Transform playerCamera;
     public Transform firePoint;
     public float vida = 10;
     public float speed = 6f;
     public float sprintSpeed = 10f;
     public float jumpHeight = 2f;
-    public float gravity = -9.81f;
-    public float mouseSensitivity = 100f;
+    public float mouseSensitivity = 2f;
 
     public float maxStamina = 100f;
     public float staminaDrain = 20f;
@@ -21,16 +19,50 @@ public class PlayerMovement : MonoBehaviour
     public float damage = 25f;
     public int ammo = 10;
 
+    public Transform cameraTransform;
+    public float cameraDistance = 5f;
+    public float cameraHeight = 1.5f;
+    public float minPitch = -30f;
+    public float maxPitch = 70f;
+    public float turnSpeed = 720f;
+
+    [SerializeField] private float groundCheckDistance = 0.1f;
+    [SerializeField] private LayerMask groundMask = ~0;
+
+    [SerializeField] private float jumpBufferDuration = 0.15f;
+    [SerializeField] private float coyoteDuration = 0.1f;
+
+    private Rigidbody rb;
+    private CapsuleCollider capsule;
+
     private float currentStamina;
-    private Vector3 velocity;
+    private float cameraPitch = 15f;
+    private float yaw;
+
+    private float inputX;
+    private float inputZ;
+    private bool isSprinting;
     private bool isGrounded;
-    private float cameraPitch;
 
     private float jumpBufferTimer;
     private float coyoteTimer;
 
-    [SerializeField] private float jumpBufferDuration = 0.15f;
-    [SerializeField] private float coyoteDuration = 0.1f;
+    void Awake()
+    {
+        rb = GetComponent<Rigidbody>();
+        capsule = GetComponent<CapsuleCollider>();
+
+        rb.freezeRotation = true;
+        rb.useGravity = true;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+
+        yaw = transform.eulerAngles.y;
+
+        if (cameraTransform == null && Camera.main != null)
+            cameraTransform = Camera.main.transform;
+    }
+
     void Start()
     {
         currentStamina = maxStamina;
@@ -40,29 +72,20 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
-        // Mirar con el mouse
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
+        inputX = Input.GetAxis("Horizontal");
+        inputZ = Input.GetAxis("Vertical");
 
-        cameraPitch -= mouseY;
-        cameraPitch = Mathf.Clamp(cameraPitch, -90f, 90f);
+        yaw += Input.GetAxis("Mouse X") * mouseSensitivity;
+        cameraPitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
+        cameraPitch = Mathf.Clamp(cameraPitch, minPitch, maxPitch);
 
-        playerCamera.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
-        transform.Rotate(Vector3.up * mouseX);
-
-        // Movimiento y estamina
-        float x = Input.GetAxis("Horizontal");
-        float z = Input.GetAxis("Vertical");
-
-        bool isMoving = x != 0f || z != 0f;
-        bool isSprinting = Input.GetKey(KeyCode.LeftShift)
+        bool isMoving = inputX != 0f || inputZ != 0f;
+        isSprinting = Input.GetKey(KeyCode.LeftShift)
             && isMoving
             && currentStamina > 0f;
 
         animator.SetBool("Idle", !isMoving);
         animator.SetBool("Runing", isMoving);
-
-        float currentSpeed = isSprinting ? sprintSpeed : speed;
 
         if (isSprinting)
             currentStamina -= staminaDrain * Time.deltaTime;
@@ -71,74 +94,66 @@ public class PlayerMovement : MonoBehaviour
 
         currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
 
-        Vector3 move = transform.right * x + transform.forward * z;
-        controller.Move(move * currentSpeed * Time.deltaTime);
-
-        // Disparar
-        if (Input.GetMouseButtonDown(0))
-            Shoot();
-
-        // Suelo, salto y gravedad
+        jumpBufferTimer -= Time.deltaTime;
         if (Input.GetButtonDown("Jump"))
             jumpBufferTimer = jumpBufferDuration;
-        else
-            jumpBufferTimer -= Time.deltaTime;
+    }
 
-        // Comprobar el suelo después del movimiento horizontal
-        isGrounded = controller.isGrounded;
+    void LateUpdate()
+    {
+        if (cameraTransform == null)
+            return;
+
+        Quaternion orbit = Quaternion.Euler(cameraPitch, yaw, 0f);
+        Vector3 pivot = transform.position + Vector3.up * cameraHeight;
+
+        cameraTransform.position = pivot - orbit * Vector3.forward * cameraDistance;
+        cameraTransform.rotation = orbit;
+    }
+
+    void FixedUpdate()
+    {
+        Quaternion yawRotation = Quaternion.Euler(0f, yaw, 0f);
+
+        Vector3 velocity = rb.linearVelocity;
+
+        Bounds bounds = capsule.bounds;
+
+        isGrounded = velocity.y <= 0.1f && Physics.Raycast(
+            bounds.center,
+            Vector3.down,
+            bounds.extents.y + groundCheckDistance,
+            groundMask,
+            QueryTriggerInteraction.Ignore);
 
         if (isGrounded)
-        {
             coyoteTimer = coyoteDuration;
-
-            if (velocity.y < 0f)
-                velocity.y = -2f;
-        }
         else
+            coyoteTimer -= Time.fixedDeltaTime;
+
+        Vector3 move = yawRotation * Vector3.ClampMagnitude(new Vector3(inputX, 0f, inputZ), 1f);
+
+        if (move.sqrMagnitude > 0.0001f)
         {
-            coyoteTimer -= Time.deltaTime;
+            Quaternion targetRotation = Quaternion.LookRotation(move);
+            rb.MoveRotation(Quaternion.RotateTowards(rb.rotation, targetRotation, turnSpeed * Time.fixedDeltaTime));
         }
 
-        // Saltar si la pulsación sigue vigente y estamos en el suelo
-        // o dentro de la breve tolerancia al salir de una plataforma
+        move *= isSprinting ? sprintSpeed : speed;
+
+        velocity.x = move.x;
+        velocity.z = move.z;
+
         if (jumpBufferTimer > 0f && coyoteTimer > 0f)
         {
+            velocity.y = Mathf.Sqrt(jumpHeight * -2f * Physics.gravity.y);
             animator.SetTrigger("Jumping");
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
 
             jumpBufferTimer = 0f;
             coyoteTimer = 0f;
         }
 
-        velocity.y += gravity * Time.deltaTime;
-        controller.Move(velocity * Time.deltaTime);
-    }
-
-    void Shoot()
-    {
-        if (ammo <= 0)
-        {
-            Debug.Log("No quedan balas.");
-            return;
-        }
-
-        ammo--;
-        Debug.Log("Balas restantes: " + ammo);
-
-        Ray ray = new Ray(playerCamera.position, playerCamera.forward);
-
-        if (Physics.Raycast(ray, out RaycastHit hit, weaponRange))
-        {
-            TargetHealth target = hit.collider.GetComponent<TargetHealth>();
-            if (target != null)
-                target.TakeDamage(damage);
-        }
-    }
-
-    public void AddAmmo(int amount)
-    {
-        ammo += amount;
-        Debug.Log("Balas: " + ammo);
+        rb.linearVelocity = velocity;
     }
 
     public void RecibirDano(float cantidad)

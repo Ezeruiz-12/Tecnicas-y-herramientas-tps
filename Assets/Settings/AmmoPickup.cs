@@ -10,7 +10,7 @@ public class AmmoPickup : MonoBehaviour
 
         if (player != null)
         {
-            player.AddAmmo(ammoAmount);
+            //player.AddAmmo(ammoAmount);
             Destroy(gameObject);
         }
     }
