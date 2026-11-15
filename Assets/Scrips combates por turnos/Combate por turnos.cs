@@ -24,12 +24,13 @@ public class TurnBasedCombat : MonoBehaviour
     [SerializeField] int maxEnemyHealth = 10;
 
     [Header("Prefabs for Later Waves")]
-    [SerializeField] GameObject normalEnemyPrefab;
+    [SerializeField] GameObject enemy10HealthPrefab;
+    [SerializeField] GameObject enemy5HealthPrefab;
     [SerializeField] GameObject bossPrefab;
-    [SerializeField] int bossHealth = 20;
-    [SerializeField] int waveTransitionTime = 2;
+    [SerializeField] int bossHealth = 30;
+    [SerializeField] float waveTransitionTime = 2f;
 
-    [Header("Enemy Health Texts")]
+    [Header("Wave 1 Health Texts")]
     [SerializeField] TextMeshProUGUI enemy1HealthText;
     [SerializeField] TextMeshProUGUI enemy2HealthText;
     [SerializeField] TextMeshProUGUI enemy3HealthText;
@@ -45,7 +46,7 @@ public class TurnBasedCombat : MonoBehaviour
     [SerializeField] Button healButton;
 
     [Header("Healing")]
-    [SerializeField] int healingAmount = 3;
+    [SerializeField] int healingAmount = 6;
 
     [Header("Enemy Turns")]
     [SerializeField] float enemyThinkingTime = 2f;
@@ -73,6 +74,9 @@ public class TurnBasedCombat : MonoBehaviour
     private readonly List<int> enemyStrongCooldowns =
         new List<int>();
 
+    private readonly List<TMP_Text> currentEnemyHealthTexts =
+        new List<TMP_Text>();
+
     private Vector3[] enemySpawnPositions;
     private Quaternion[] enemySpawnRotations;
 
@@ -92,9 +96,9 @@ public class TurnBasedCombat : MonoBehaviour
             enemy3.transform.rotation
         };
 
-        AddEnemy(enemy1, enemy1Health, maxEnemyHealth);
-        AddEnemy(enemy2, enemy2Health, 5);
-        AddEnemy(enemy3, enemy3Health, 5);
+        AddEnemy(enemy1, enemy1Health, maxEnemyHealth, enemy1HealthText);
+        AddEnemy(enemy2, enemy2Health, 5, enemy2HealthText);
+        AddEnemy(enemy3, enemy3Health, 5, enemy3HealthText);
 
         attackButton.onClick.AddListener(PlayerBasicAttack);
         strongAttackButton.onClick.AddListener(PlayerStrongAttack);
@@ -116,12 +120,23 @@ public class TurnBasedCombat : MonoBehaviour
         UpdateTargetArrow();
     }
 
-    void AddEnemy(GameObject enemyObject, int health, int maxHealth)
+    void AddEnemy(
+        GameObject enemyObject,
+        int health,
+        int maxHealth,
+        TMP_Text healthText = null
+    )
     {
         currentEnemies.Add(enemyObject);
         currentEnemyHealth.Add(health);
         currentEnemyMaxHealth.Add(maxHealth);
         enemyStrongCooldowns.Add(0);
+
+        if (healthText == null && enemyObject != null)
+            healthText = enemyObject.GetComponentInChildren<TMP_Text>(true);
+
+        currentEnemyHealthTexts.Add(healthText);
+        UpdateEnemyHealthText(currentEnemyHealth.Count - 1);
     }
 
     void TrySelectEnemyWithClick()
@@ -176,9 +191,7 @@ public class TurnBasedCombat : MonoBehaviour
         if (targetArrow == null)
             return;
 
-        int livingEnemy = GetFirstLivingEnemyIndex();
-
-        if (livingEnemy == -1)
+        if (GetFirstLivingEnemyIndex() == -1)
         {
             targetArrow.SetActive(false);
             return;
@@ -211,7 +224,7 @@ public class TurnBasedCombat : MonoBehaviour
             currentEnemies[targetIndex],
             player.transform.position,
             currentEnemies[targetIndex].transform.position,
-            () => FinishPlayerAttack(targetIndex, 1)
+            () => FinishPlayerAttack(targetIndex, 2)
         ));
     }
 
@@ -230,7 +243,7 @@ public class TurnBasedCombat : MonoBehaviour
             currentEnemies[targetIndex],
             player.transform.position,
             currentEnemies[targetIndex].transform.position,
-            () => FinishPlayerAttack(targetIndex, 2)
+            () => FinishPlayerAttack(targetIndex, 5)
         ));
     }
 
@@ -273,8 +286,13 @@ public class TurnBasedCombat : MonoBehaviour
 
     void FinishPlayerAttack(int targetIndex, int damage)
     {
+        if (targetIndex < 0 || targetIndex >= currentEnemyHealth.Count)
+            return;
+
         currentEnemyHealth[targetIndex] =
             Mathf.Max(0, currentEnemyHealth[targetIndex] - damage);
+
+        UpdateEnemyHealthText(targetIndex);
 
         if (currentEnemyHealth[targetIndex] <= 0)
             currentEnemies[targetIndex].SetActive(false);
@@ -319,7 +337,7 @@ public class TurnBasedCombat : MonoBehaviour
             if (currentEnemyHealth[i] <= 0)
                 continue;
 
-            // Each living enemy waits before choosing its attack.
+            // Each living enemy waits before choosing and using its attack.
             yield return new WaitForSeconds(enemyThinkingTime);
 
             if (playerHealth <= 0)
@@ -329,22 +347,39 @@ public class TurnBasedCombat : MonoBehaviour
                 yield break;
             }
 
+            bool isBoss = currentWave == 3;
+            bool enemyHasStrongAttack =
+                isBoss || currentEnemyMaxHealth[i] > 5;
+
             bool useStrongAttack =
-                enemyStrongCooldowns[i] <= 0
+                enemyHasStrongAttack
+                && enemyStrongCooldowns[i] <= 0
                 && Random.value < 0.5f;
 
             int damage;
 
-            if (currentWave == 3)
+            if (isBoss)
+            {
                 damage = useStrongAttack ? 4 : 2;
-            else
+            }
+            else if (enemyHasStrongAttack)
+            {
                 damage = useStrongAttack ? 2 : 1;
+            }
+            else
+            {
+                // Enemies with 5 health only use the basic attack.
+                damage = 1;
+            }
 
             if (useStrongAttack)
                 enemyStrongCooldowns[i] = 3;
 
-            Vector3 enemyStart = currentEnemies[i].transform.position;
-            Vector3 playerStart = player.transform.position;
+            Vector3 enemyStart =
+                currentEnemies[i].transform.position;
+
+            Vector3 playerStart =
+                player.transform.position;
 
             yield return DoAttack(
                 currentEnemies[i],
@@ -424,16 +459,23 @@ public class TurnBasedCombat : MonoBehaviour
         currentWave = 2;
         ClearCurrentEnemies();
 
-        // The second wave has three new enemies, each with 5 health.
-        for (int i = 0; i < 3; i++)
+        GameObject enemyWith10Health = Instantiate(
+            enemy10HealthPrefab,
+            enemySpawnPositions[0],
+            enemySpawnRotations[0]
+        );
+
+        AddEnemy(enemyWith10Health, 10, 10);
+
+        for (int i = 1; i < 3; i++)
         {
-            GameObject newEnemy = Instantiate(
-                normalEnemyPrefab,
+            GameObject enemyWith5Health = Instantiate(
+                enemy5HealthPrefab,
                 enemySpawnPositions[i],
                 enemySpawnRotations[i]
             );
 
-            AddEnemy(newEnemy, 5, 5);
+            AddEnemy(enemyWith5Health, 5, 5);
         }
 
         Debug.Log("Wave 2!");
@@ -444,7 +486,6 @@ public class TurnBasedCombat : MonoBehaviour
         currentWave = 3;
         ClearCurrentEnemies();
 
-        // The third wave has one boss with 20 health.
         GameObject boss = Instantiate(
             bossPrefab,
             enemySpawnPositions[0],
@@ -468,6 +509,26 @@ public class TurnBasedCombat : MonoBehaviour
         currentEnemyHealth.Clear();
         currentEnemyMaxHealth.Clear();
         enemyStrongCooldowns.Clear();
+        currentEnemyHealthTexts.Clear();
+    }
+
+    void UpdateEnemyHealthText(int enemyIndex)
+    {
+        if (enemyIndex < 0
+            || enemyIndex >= currentEnemyHealthTexts.Count)
+        {
+            return;
+        }
+
+        TMP_Text healthText = currentEnemyHealthTexts[enemyIndex];
+
+        if (healthText != null)
+        {
+            healthText.text =
+                currentEnemyHealth[enemyIndex]
+                + " / "
+                + currentEnemyMaxHealth[enemyIndex];
+        }
     }
 
     IEnumerator DoAttack(
@@ -571,47 +632,10 @@ public class TurnBasedCombat : MonoBehaviour
         if (waveText != null)
             waveText.text = "Oleada " + currentWave + " / 3";
 
-        SetEnemyHealthText(
-            enemy1HealthText,
-            0,
-            "Enemigo 1"
-        );
-
-        SetEnemyHealthText(
-            enemy2HealthText,
-            1,
-            "Enemigo 2"
-        );
-
-        SetEnemyHealthText(
-            enemy3HealthText,
-            2,
-            "Enemigo 3"
-        );
+        for (int i = 0; i < currentEnemyHealth.Count; i++)
+            UpdateEnemyHealthText(i);
 
         UpdateButtons();
-    }
-
-    void SetEnemyHealthText(
-        TextMeshProUGUI healthText,
-        int enemyIndex,
-        string enemyName
-    )
-    {
-        if (healthText == null)
-            return;
-
-        if (enemyIndex >= currentEnemyHealth.Count)
-        {
-            healthText.text = "";
-            return;
-        }
-
-        healthText.text =
-            enemyName + ": "
-            + currentEnemyHealth[enemyIndex]
-            + " / "
-            + currentEnemyMaxHealth[enemyIndex];
     }
 
     void UpdateButtons()
@@ -643,6 +667,5 @@ public class TurnBasedCombat : MonoBehaviour
             && playerHealth < maxPlayerHealth;
     }
 }
-
 
 
