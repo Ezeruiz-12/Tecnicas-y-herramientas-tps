@@ -50,6 +50,7 @@ public class TurnBasedCombat : MonoBehaviour
 
     [Header("Enemy Turns")]
     [SerializeField] float enemyThinkingTime = 2f;
+    [SerializeField] float enemyDeathAnimationTime = 1f;
 
     private bool playerTurn = true;
     private bool actionInProgress;
@@ -295,7 +296,7 @@ public class TurnBasedCombat : MonoBehaviour
         UpdateEnemyHealthText(targetIndex);
 
         if (currentEnemyHealth[targetIndex] <= 0)
-            currentEnemies[targetIndex].SetActive(false);
+            StartCoroutine(PlayEnemyDeath(currentEnemies[targetIndex]));
 
         if (currentEnemyHealth[selectedEnemyIndex] <= 0)
             SelectFirstLivingEnemy();
@@ -312,6 +313,21 @@ public class TurnBasedCombat : MonoBehaviour
         StartCoroutine(EndPlayerTurn());
     }
 
+
+    IEnumerator PlayEnemyDeath(GameObject enemy)
+    {
+        Animator enemyAnimator = enemy.GetComponent<Animator>();
+
+        if (enemyAnimator != null)
+        {
+            enemyAnimator.SetBool("Death", true);
+            yield return new WaitForSeconds(enemyDeathAnimationTime);
+            enemyAnimator.SetBool("Death", false);
+        }
+
+        if (enemy != null)
+            enemy.SetActive(false);
+    }
     IEnumerator EndPlayerTurn()
     {
         yield return null;
@@ -539,6 +555,12 @@ public class TurnBasedCombat : MonoBehaviour
         System.Action onComplete
     )
     {
+        Animator animator = attacker.GetComponent<Animator>();
+
+        bool attackerIsEnemy = currentEnemies.Contains(attacker);
+
+        if (attackerIsEnemy && animator != null)
+            animator.SetBool("Attack", true);
         Vector3 attackPosition =
             attackerStart
             + (targetStart - attackerStart).normalized * 0.5f;
@@ -551,29 +573,42 @@ public class TurnBasedCombat : MonoBehaviour
             attacker,
             attackerStart,
             attackPosition,
-            0.1f
+            0.6f
         );
 
         yield return MoveOverTime(
             attacker,
             attackPosition,
             attackerStart,
-            0.1f
+            0.6f
         );
+
+        Animator targetAnimator = target.GetComponent<Animator>();
+
+        bool targetIsEnemy = currentEnemies.Contains(target);
+
+        if (targetIsEnemy && targetAnimator != null)
+            targetAnimator.SetBool("Hit", true);
 
         yield return MoveOverTime(
             target,
             targetStart,
             targetPushPosition,
-            0.05f
+            0.65f
         );
 
         yield return MoveOverTime(
             target,
             targetPushPosition,
             targetStart,
-            0.1f
+            0.6f
         );
+
+        if (targetIsEnemy && targetAnimator != null)
+            targetAnimator.SetBool("Hit", false);
+
+        if (attackerIsEnemy && animator != null)
+            animator.SetBool("Attack", false);
 
         onComplete?.Invoke();
     }
@@ -667,5 +702,6 @@ public class TurnBasedCombat : MonoBehaviour
             && playerHealth < maxPlayerHealth;
     }
 }
+
 
 
