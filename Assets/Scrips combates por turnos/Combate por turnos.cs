@@ -316,9 +316,12 @@ public class TurnBasedCombat : MonoBehaviour
 
     IEnumerator PlayEnemyDeath(GameObject enemy)
     {
-        Animator enemyAnimator = enemy.GetComponent<Animator>();
+        if (enemy == null)
+            yield break;
 
-        if (enemyAnimator != null)
+        Animator enemyAnimator = enemy.GetComponentInChildren<Animator>();
+
+        if (HasValidAnimator(enemyAnimator))
         {
             enemyAnimator.SetBool("Death", true);
             yield return new WaitForSeconds(enemyDeathAnimationTime);
@@ -327,6 +330,24 @@ public class TurnBasedCombat : MonoBehaviour
 
         if (enemy != null)
             enemy.SetActive(false);
+    }
+
+    IEnumerator PlayPlayerDeath()
+    {
+        Animator playerAnimator = player.GetComponentInChildren<Animator>();
+
+        if (HasValidAnimator(playerAnimator))
+        {
+            // Keep Death enabled so the player remains in the death state.
+            playerAnimator.SetBool("Death", true);
+            yield return new WaitForSeconds(enemyDeathAnimationTime);
+        }
+    }
+
+    bool HasValidAnimator(Animator animator)
+    {
+        return animator != null &&
+               animator.runtimeAnimatorController != null;
     }
     IEnumerator EndPlayerTurn()
     {
@@ -411,6 +432,7 @@ public class TurnBasedCombat : MonoBehaviour
 
             if (playerHealth <= 0)
             {
+                yield return PlayPlayerDeath();
                 Debug.Log("Player defeated!");
                 gameOver = true;
                 UpdateButtons();
@@ -555,12 +577,11 @@ public class TurnBasedCombat : MonoBehaviour
         System.Action onComplete
     )
     {
-        Animator animator = attacker.GetComponent<Animator>();
+        Animator attackerAnimator = attacker.GetComponentInChildren<Animator>();
+        bool canAnimateAttacker = HasValidAnimator(attackerAnimator);
 
-        bool attackerIsEnemy = currentEnemies.Contains(attacker);
-
-        if (attackerIsEnemy && animator != null)
-            animator.SetBool("Attack", true);
+        if (canAnimateAttacker)
+            attackerAnimator.SetBool("Attack", true);
         Vector3 attackPosition =
             attackerStart
             + (targetStart - attackerStart).normalized * 0.5f;
@@ -583,11 +604,10 @@ public class TurnBasedCombat : MonoBehaviour
             0.6f
         );
 
-        Animator targetAnimator = target.GetComponent<Animator>();
+        Animator targetAnimator = target.GetComponentInChildren<Animator>();
+        bool canAnimateTarget = HasValidAnimator(targetAnimator);
 
-        bool targetIsEnemy = currentEnemies.Contains(target);
-
-        if (targetIsEnemy && targetAnimator != null)
+        if (canAnimateTarget)
             targetAnimator.SetBool("Hit", true);
 
         yield return MoveOverTime(
@@ -604,11 +624,11 @@ public class TurnBasedCombat : MonoBehaviour
             0.6f
         );
 
-        if (targetIsEnemy && targetAnimator != null)
+        if (canAnimateTarget)
             targetAnimator.SetBool("Hit", false);
 
-        if (attackerIsEnemy && animator != null)
-            animator.SetBool("Attack", false);
+        if (canAnimateAttacker)
+            attackerAnimator.SetBool("Attack", false);
 
         onComplete?.Invoke();
     }
@@ -702,6 +722,4 @@ public class TurnBasedCombat : MonoBehaviour
             && playerHealth < maxPlayerHealth;
     }
 }
-
-
 
