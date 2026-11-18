@@ -393,7 +393,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MainMenuMusic
   musicClip: {fileID: 8300000, guid: 00aa3680f20b7a44192ac6949bbb9769, type: 3}
-  volume: 0.5
+  volumeSlider: {fileID: 1695807624}
 --- !u!82 &367511788
 AudioSource:
   m_ObjectHideFlags: 0

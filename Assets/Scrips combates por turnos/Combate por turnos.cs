@@ -9,8 +9,8 @@ public class TurnBasedCombat : MonoBehaviour
 {
     [Header("Player")]
     [SerializeField] GameObject player;
-    [SerializeField] int playerHealth = 20;
-    [SerializeField] int maxPlayerHealth = 20;
+    [SerializeField] int playerHealth = 15;
+    [SerializeField] int maxPlayerHealth = 15;
     [SerializeField] TextMeshProUGUI playerHealthText;
 
     [Header("Wave 1 Enemies")]
@@ -23,18 +23,10 @@ public class TurnBasedCombat : MonoBehaviour
     [SerializeField] int enemy3Health = 5;
     [SerializeField] int maxEnemyHealth = 10;
 
-    [Header("Prefabs for Later Waves")]
-    [SerializeField] GameObject enemy10HealthPrefab;
-    [SerializeField] GameObject enemy5HealthPrefab;
-    [SerializeField] GameObject bossPrefab;
-    [SerializeField] int bossHealth = 30;
-    [SerializeField] float waveTransitionTime = 2f;
-
     [Header("Wave 1 Health Texts")]
     [SerializeField] TextMeshProUGUI enemy1HealthText;
     [SerializeField] TextMeshProUGUI enemy2HealthText;
     [SerializeField] TextMeshProUGUI enemy3HealthText;
-    [SerializeField] TextMeshProUGUI waveText;
 
     [Header("Target Arrow")]
     [SerializeField] GameObject targetArrow;
@@ -46,7 +38,7 @@ public class TurnBasedCombat : MonoBehaviour
     [SerializeField] Button healButton;
 
     [Header("Healing")]
-    [SerializeField] int healingAmount = 6;
+    [SerializeField] int healingAmount = 4;
 
     [Header("Enemy Turns")]
     [SerializeField] float enemyThinkingTime = 2f;
@@ -54,10 +46,9 @@ public class TurnBasedCombat : MonoBehaviour
 
     private bool playerTurn = true;
     private bool actionInProgress;
-    private bool waveTransitionInProgress;
     private bool gameOver;
-
-    private int currentWave = 1;
+    private VictoryCondition victoryCondition;
+    private DefeatCondition defeatCondition;
     private int selectedEnemyIndex;
 
     private int playerStrongCooldown;
@@ -83,19 +74,15 @@ public class TurnBasedCombat : MonoBehaviour
 
     void Start()
     {
-        enemySpawnPositions = new Vector3[]
-        {
-            enemy1.transform.position,
-            enemy2.transform.position,
-            enemy3.transform.position
-        };
+        // VictoryCondition está en este mismo objeto, como en la configuración de la escena.
+        victoryCondition = GetComponent<VictoryCondition>();
+        if (victoryCondition == null)
+            Debug.LogError("Falta agregar el componente VictoryCondition a este objeto.", this);
 
-        enemySpawnRotations = new Quaternion[]
-        {
-            enemy1.transform.rotation,
-            enemy2.transform.rotation,
-            enemy3.transform.rotation
-        };
+        // DefeatCondition también debe estar agregado a este objeto.
+        defeatCondition = GetComponent<DefeatCondition>();
+        if (defeatCondition == null)
+            Debug.LogError("Falta agregar el componente DefeatCondition a este objeto.", this);
 
         AddEnemy(enemy1, enemy1Health, maxEnemyHealth, enemy1HealthText);
         AddEnemy(enemy2, enemy2Health, 5, enemy2HealthText);
@@ -142,7 +129,7 @@ public class TurnBasedCombat : MonoBehaviour
 
     void TrySelectEnemyWithClick()
     {
-        if (!playerTurn || actionInProgress || waveTransitionInProgress)
+        if (!playerTurn || actionInProgress)
             return;
 
         if (EventSystem.current != null
@@ -270,7 +257,6 @@ public class TurnBasedCombat : MonoBehaviour
     {
         return playerTurn
             && !actionInProgress
-            && !waveTransitionInProgress
             && !gameOver
             && playerHealth > 0
             && GetFirstLivingEnemyIndex() != -1
@@ -306,13 +292,16 @@ public class TurnBasedCombat : MonoBehaviour
 
         if (GetFirstLivingEnemyIndex() == -1)
         {
-            StartCoroutine(AdvanceToNextWave());
+            gameOver = true;
+            Debug.Log("You defeated all enemies!");
+            if (victoryCondition != null)
+                victoryCondition.TriggerVictory();
+            UpdateButtons();
             return;
         }
 
         StartCoroutine(EndPlayerTurn());
     }
-
 
     IEnumerator PlayEnemyDeath(GameObject enemy)
     {
@@ -384,31 +373,16 @@ public class TurnBasedCombat : MonoBehaviour
                 yield break;
             }
 
-            bool isBoss = currentWave == 3;
-            bool enemyHasStrongAttack =
-                isBoss || currentEnemyMaxHealth[i] > 5;
+            bool enemyHasStrongAttack = currentEnemyMaxHealth[i] > 5;
 
             bool useStrongAttack =
                 enemyHasStrongAttack
                 && enemyStrongCooldowns[i] <= 0
                 && Random.value < 0.5f;
 
-            int damage;
-
-            if (isBoss)
-            {
-                damage = useStrongAttack ? 4 : 2;
-            }
-            else if (enemyHasStrongAttack)
-            {
-                damage = useStrongAttack ? 2 : 1;
-            }
-            else
-            {
-                // Enemies with 5 health only use the basic attack.
-                damage = 1;
-            }
-
+            int damage = enemyHasStrongAttack
+                ? (useStrongAttack ? 2 : 1)
+                : 1;
             if (useStrongAttack)
                 enemyStrongCooldowns[i] = 3;
 
@@ -434,6 +408,8 @@ public class TurnBasedCombat : MonoBehaviour
             {
                 yield return PlayPlayerDeath();
                 Debug.Log("Player defeated!");
+                if (defeatCondition != null)
+                    defeatCondition.CheckPlayerHealth(playerHealth);
                 gameOver = true;
                 UpdateButtons();
                 yield break;
@@ -452,102 +428,6 @@ public class TurnBasedCombat : MonoBehaviour
         playerTurn = true;
         actionInProgress = false;
         UpdateButtons();
-    }
-
-    IEnumerator AdvanceToNextWave()
-    {
-        waveTransitionInProgress = true;
-        actionInProgress = true;
-
-        if (targetArrow != null)
-            targetArrow.SetActive(false);
-
-        UpdateButtons();
-
-        yield return new WaitForSeconds(waveTransitionTime);
-
-        if (currentWave == 1)
-        {
-            StartWave2();
-        }
-        else if (currentWave == 2)
-        {
-            StartWave3();
-        }
-        else
-        {
-            gameOver = true;
-            Debug.Log("You completed all 3 waves!");
-            UpdateUI();
-            yield break;
-        }
-
-        waveTransitionInProgress = false;
-        actionInProgress = false;
-        playerTurn = true;
-
-        SelectFirstLivingEnemy();
-        UpdateUI();
-        UpdateTargetArrow();
-        UpdateButtons();
-    }
-
-    void StartWave2()
-    {
-        currentWave = 2;
-        ClearCurrentEnemies();
-
-        GameObject enemyWith10Health = Instantiate(
-            enemy10HealthPrefab,
-            enemySpawnPositions[0],
-            enemySpawnRotations[0]
-        );
-
-        AddEnemy(enemyWith10Health, 10, 10);
-
-        for (int i = 1; i < 3; i++)
-        {
-            GameObject enemyWith5Health = Instantiate(
-                enemy5HealthPrefab,
-                enemySpawnPositions[i],
-                enemySpawnRotations[i]
-            );
-
-            AddEnemy(enemyWith5Health, 5, 5);
-        }
-
-        Debug.Log("Wave 2!");
-    }
-
-    void StartWave3()
-    {
-        currentWave = 3;
-        ClearCurrentEnemies();
-
-        GameObject boss = Instantiate(
-            bossPrefab,
-            enemySpawnPositions[0],
-            enemySpawnRotations[0]
-        );
-
-        AddEnemy(boss, bossHealth, bossHealth);
-
-        Debug.Log("Boss wave!");
-    }
-
-    void ClearCurrentEnemies()
-    {
-        foreach (GameObject enemyObject in currentEnemies)
-        {
-            if (enemyObject != null)
-                enemyObject.SetActive(false);
-        }
-
-        currentEnemies.Clear();
-        currentEnemyHealth.Clear();
-        currentEnemyMaxHealth.Clear();
-        enemyStrongCooldowns.Clear();
-        currentEnemyHealthTexts.Clear();
     }
 
     void UpdateEnemyHealthText(int enemyIndex)
@@ -684,8 +564,6 @@ public class TurnBasedCombat : MonoBehaviour
                 playerHealth + " / " + maxPlayerHealth;
         }
 
-        if (waveText != null)
-            waveText.text = "Oleada " + currentWave + " / 3";
 
         for (int i = 0; i < currentEnemyHealth.Count; i++)
             UpdateEnemyHealthText(i);
@@ -698,7 +576,6 @@ public class TurnBasedCombat : MonoBehaviour
         bool playerCanAct =
             playerTurn
             && !actionInProgress
-            && !waveTransitionInProgress
             && !gameOver
             && playerHealth > 0
             && GetFirstLivingEnemyIndex() != -1;
@@ -722,4 +599,5 @@ public class TurnBasedCombat : MonoBehaviour
             && playerHealth < maxPlayerHealth;
     }
 }
+
 
